@@ -1,5 +1,5 @@
 mod data_stream;
-pub use data_stream::{ PacketBuffer, DnsHeader };
+pub use data_stream::{ PacketBuffer, DnsHeader, DnsQuestion, QueryType };
 
 use std::net::UdpSocket;
 
@@ -19,8 +19,10 @@ fn main() {
                 //     .send_to(&response, source)
                 //     .expect("Failed to send response");
                 let head = DnsHeader::new();
+                let ques = DnsQuestion::new(String::from("codecrafters.io"), QueryType::A);
                 let mut pak = PacketBuffer::new();
                 head.write(&mut pak).unwrap();
+                ques.write(&mut pak).unwrap();
                 udp_socket
                     .send_to(&pak.buf, source)
                     .expect("Failed to send response");

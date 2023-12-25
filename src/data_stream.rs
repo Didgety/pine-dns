@@ -256,8 +256,9 @@ pub struct DnsHeader {
     pub rec_av: bool,            // 1 bit - recursion available
 
     pub reserved: bool,          // 3 bits - reserved (DNSSEC queries)
-    pub auth_data: bool,         // 1 bit  - resolver believes data is authentic (validated by DNSSEC)
-    pub checking_disabled: bool, // 1 bit  - disable signature validation if true
+    pub auth_data: bool,         // 1 bit  - resolver believes data is authentic (validated by DNSSEC). Uses one of the reserved bits.
+    pub checking_disabled: bool, // 1 bit  - disable signature validation if true. Uses one of the reserved bits.
+    
     pub res_code: ResCode,       // 4 bits - response code
 
     pub ques_count: u16,         // 16 bits - entries in Question Section
@@ -282,9 +283,10 @@ impl DnsHeader {
             reserved: false,
             auth_data: false,
             checking_disabled: false,
+            
             res_code: ResCode::NO_ERR,
 
-            ques_count: 0,
+            ques_count: 1,
             ans_count: 0,
             auth_count: 0,
             res_count: 0,
@@ -324,6 +326,7 @@ impl DnsHeader {
         self.auth_data = (tags_second_byte & (1 << 5)) > 0;
         // Mask to check only the fourth bit
         self.checking_disabled = (tags_second_byte & (1 << 4)) > 0;
+        
         // Mask to check only the last four bits
         self.res_code = ResCode::from_u8(tags_second_byte & 0x0F);
 
@@ -359,6 +362,66 @@ impl DnsHeader {
         buf.write_u16(self.ans_count)?;
         buf.write_u16(self.auth_count)?;
         buf.write_u16(self.res_count)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub enum QueryType {
+    UNKNOWN(u16),
+    A,
+}
+
+impl QueryType {
+    pub fn to_u16(&self) -> u16 {
+        match *self {
+            QueryType::UNKNOWN(x) => x,
+            QueryType::A => 1,
+        }
+    }
+
+    pub fn from_u16(num: u16) -> QueryType {
+        match num {
+            1 => QueryType::A,
+            _ => QueryType::UNKNOWN(num),
+        }
+    } 
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DnsQuestion {
+    pub name: String,
+    pub q_type: QueryType,
+}
+
+impl DnsQuestion {
+    /// Constructor
+    pub fn new(name: String, q_type: QueryType) -> DnsQuestion {
+        DnsQuestion { 
+            name: name,
+            q_type: q_type,
+        }
+    }
+
+    /// Read the question section from a dns packet
+    pub fn read(&mut self, buf: &mut PacketBuffer) -> Result<()> {
+        buf.read_qname(&mut self.name)?;
+        self.q_type = QueryType::from_u16(buf.read_u16()?);
+        // class
+        let _ = buf.read_u16()?; 
+
+        Ok(())
+    }
+
+    /// Write the question section to a PacketBuffer
+    /// Should be used only after writing DnsHeader to the PacketBuffer
+    pub fn write(&self, buf: &mut PacketBuffer) -> Result<()> {
+        buf.write_qname(&self.name)?;
+
+        let q_type_u16 = self.q_type.to_u16();
+        buf.write_u16(q_type_u16)?;
+        buf.write_u16(1)?;
 
         Ok(())
     }
