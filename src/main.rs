@@ -1,7 +1,9 @@
 mod data_stream;
 pub use data_stream::{ PacketBuffer, DnsHeader, DnsQuestion, QueryType };
 
-use std::net::UdpSocket;
+use std::net::{UdpSocket, Ipv4Addr};
+
+use crate::data_stream::DnsRecord;
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -14,15 +16,21 @@ fn main() {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
-                // let response = [];
-                // udp_socket
-                //     .send_to(&response, source)
-                //     .expect("Failed to send response");
+
                 let head = DnsHeader::new();
                 let ques = DnsQuestion::new(String::from("codecrafters.io"), QueryType::A);
+                let rec = DnsRecord::A { 
+                    domain: String::from("codecrafters.io"), 
+                    addr_v4: Ipv4Addr::new(1,1,1,1), 
+                    ttl: 60 
+                };
+
                 let mut pak = PacketBuffer::new();
+
                 head.write(&mut pak).unwrap();
                 ques.write(&mut pak).unwrap();
+                rec.write(&mut pak).unwrap();
+                
                 udp_socket
                     .send_to(&pak.buf, source)
                     .expect("Failed to send response");

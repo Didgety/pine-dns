@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 type Error = Box<dyn std::error::Error>;
 type Result<T> = std::result::Result<T, Error>;
 
@@ -285,9 +287,9 @@ impl DnsHeader {
             checking_disabled: false,
             
             res_code: ResCode::NO_ERR,
-
+            // TODO reset values when reading packets is finished
             ques_count: 1,
-            ans_count: 0,
+            ans_count: 1,
             auth_count: 0,
             res_count: 0,
         }
@@ -425,4 +427,85 @@ impl DnsQuestion {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DnsRecord {
+    UNKNOWN {
+        domain: String,
+        q_type: u16,
+        len: u16,
+        ttl: u32,
+    },
+    A {
+        domain: String,
+        addr_v4: Ipv4Addr,
+        ttl: u32,
+    },
+}
+
+impl DnsRecord {
+
+    // pub fn read(buf: &mut PacketBuffer) -> Result<DnsRecord> {
+
+    // }
+
+    
+    pub fn write(&self, buf: &mut PacketBuffer) -> Result<usize> {
+        let start = buf.pos;
+
+        match *self {
+            DnsRecord::A {
+                ref domain,
+                ref addr_v4,
+                ttl,
+            } => {
+                buf.write_qname(domain)?;
+                buf.write_u16(QueryType::A.to_u16())?;
+                buf.write_u16(1)?;
+                buf.write_u32(ttl)?;
+                buf.write_u16(4)?;
+
+                let octets = addr_v4.octets();
+                buf.write_u8(octets[0])?;
+                buf.write_u8(octets[1])?;
+                buf.write_u8(octets[2])?;
+                buf.write_u8(octets[3])?;
+            }
+            DnsRecord::UNKNOWN { .. } => {
+                println!("Skipping unknown record: {:?}", self);
+            }                 
+        }
+
+        Ok(buf.pos() - start)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DnsPacket {
+    pub header: DnsHeader,
+    pub questions: Vec<DnsQuestion>,
+    pub answers: Vec<DnsRecord>,
+    pub authorities: Vec<DnsRecord>,
+    pub resources: Vec<DnsRecord>,
+}
+
+impl DnsPacket {
+
+    pub fn new() -> DnsPacket {
+        DnsPacket {
+            header: DnsHeader::new(),
+            questions: Vec::new(),
+            answers: Vec::new(),
+            authorities: Vec::new(),
+            resources: Vec::new(),
+        }
+    }
+
+
+    // pub fn from_buf(buf: &mut PacketBuffer) -> Result<DnsPacket> {
+    //     let mut result = DnsPacket::new();
+    //     result.header.read(buffer)?;
+
+    // }
 }
