@@ -8,14 +8,14 @@ fn main() {
     println!("Logs from your program will appear here!");
     
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
-    let mut pak_buf = PacketBuffer::new();
+    
     
     loop {
+        let mut pak_buf = PacketBuffer::new();
+
         match udp_socket.recv_from(&mut pak_buf.buf) {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
-
-                pak_buf.pos = 0;
 
                 let req = DnsPacket::from_buf(&mut pak_buf).unwrap();
                 
@@ -47,13 +47,15 @@ fn main() {
                 
 
                 // TODO change this
-                if response.questions.len() == 1 {
-                    let ans = data_stream::DnsRecord::A { 
-                        domain: response.questions[0].name.clone(), 
-                        addr_v4: std::net::Ipv4Addr::new(1,1,1,1), 
-                        ttl: 60 
-                    };
-                    response.answers.push(ans);
+                if response.questions.len() > 0 {
+                    for q in 0..response.questions.len() {
+                        let ans = data_stream::DnsRecord::A { 
+                            domain: response.questions[q].name.clone(), 
+                            addr_v4: std::net::Ipv4Addr::new(1,1,1,1), 
+                            ttl: 60 
+                        };
+                        response.answers.push(ans);
+                    }                 
                 }              
 
                 let mut pak = PacketBuffer::new();
