@@ -44,16 +44,16 @@ fn main() {
                            
                 
                 let _ques = DnsQuestion::new(String::from("codecrafters.io"), QueryType::A);
-                let _rec = data_stream::DnsRecord::A { 
-                    domain: String::from("codecrafters.io"), 
-                    addr_v4: std::net::Ipv4Addr::new(1,1,1,1), 
-                    ttl: 60 
-                };
+                
 
-                // Hardcoded to pass one specific test
+                // TODO change this
                 if response.questions.len() == 1 {
-                    //response.questions.push(_ques);
-                    response.answers.push(_rec);
+                    let ans = data_stream::DnsRecord::A { 
+                        domain: response.questions[0].name.clone(), 
+                        addr_v4: std::net::Ipv4Addr::new(1,1,1,1), 
+                        ttl: 60 
+                    };
+                    response.answers.push(ans);
                 }              
 
                 let mut pak = PacketBuffer::new();

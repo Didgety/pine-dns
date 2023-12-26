@@ -367,8 +367,6 @@ impl DnsHeader {
                 | ((self.query_res as u8) << 7) as u8,   
         )?;
 
-        println!("{:#?}", buf.buf[buf.pos - 1]);
-
         buf.write_u8(
             (self.res_code as u8)
                 | ((self.checking_disabled as u8) << 4)
