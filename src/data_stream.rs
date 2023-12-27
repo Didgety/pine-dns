@@ -905,6 +905,7 @@ pub fn handle_query_with_resolver(udp_socket: &UdpSocket, resolver: &SocketAddrV
     println!("Received {} bytes from {}", size, source);
 
     let mut req = DnsPacket::from_buf(&mut req_buf)?;
+    let mut req = DnsPacket::from_buf(&mut req_buf)?;
 
     // println!("REQ!!!!!!!"); 
     // println!("{:#?}", req.header.id); 
@@ -925,6 +926,8 @@ pub fn handle_query_with_resolver(udp_socket: &UdpSocket, resolver: &SocketAddrV
     };
 
     if response.header.res_code == ResCode::NO_ERR {
+        
+        for _ in 0..req.header.ques_count as usize {         
         
         for _ in 0..req.header.ques_count as usize {         
             // println!("Received query: {:?}", req.questions[i]);
