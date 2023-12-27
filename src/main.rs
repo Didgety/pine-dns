@@ -1,81 +1,25 @@
 mod data_stream;
 pub use data_stream::{ PacketBuffer, DnsHeader, DnsPacket, DnsQuestion, DnsRecord, QueryType, ResCode };
 
-use std::net::UdpSocket;
+use std::net::{UdpSocket, SocketAddrV4, Ipv4Addr};
 
+/// Run the program with ./your_server.sh --resolver <ip:port>
+/// Where ip:port is the ip and port of a valid dns resolver
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
+    // resolver ip : port
+    let args: Vec<String> = std::env::args().collect();
+    let resolver = if args.len() == 3 && args[1] == "--resolver"  {
+        args[2].parse::<SocketAddrV4>().unwrap()
+    } else {
+        SocketAddrV4::new(Ipv4Addr::new(127,0,0,1), 49810)
+    };
+
+    println!("Resolver: {:#?}", resolver);
     
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
     
     
     loop {
-        let mut pak_buf = PacketBuffer::new();
-
-        match udp_socket.recv_from(&mut pak_buf.buf) {
-            Ok((size, source)) => {
-                println!("Received {} bytes from {}", size, source);
-
-                let req = DnsPacket::from_buf(&mut pak_buf).unwrap();
-                
-                println!("REQ!!!!!!!"); 
-                println!("{:#?}", req.header.opcode); 
-                // println!("{:#?}", req.questions);
-                // println!("{:#?} : {:#?}", pak_buf.buf[0], pak_buf.buf[1]);
-                // println!("{:08b} : {:08b}", pak_buf.buf[0], pak_buf.buf[1]);
-                // println!("{:#?}", ((pak_buf.buf[0] as u16) << 8) | (pak_buf.buf[1] as u16));
-                
-
-                let mut response = DnsPacket::new();
-
-                response.header.id = req.header.id;
-                // response.header.query_res = true;
-                response.header.opcode = req.header.opcode;
-                response.header.rec_des = req.header.rec_des; 
-                response.header.res_code = 
-                    if req.header.opcode == 0 { 
-                        ResCode::NO_ERR 
-                    } 
-                    else { 
-                        ResCode::NOT_IMP 
-                    };
-                response.questions = req.questions;
-                           
-                
-                let _ques = DnsQuestion::new(String::from("codecrafters.io"), QueryType::A);
-                
-
-                // TODO change this
-                if response.questions.len() > 0 {
-                    for q in 0..response.questions.len() {
-                        let ans = data_stream::DnsRecord::A { 
-                            domain: response.questions[q].name.clone(), 
-                            addr_v4: std::net::Ipv4Addr::new(1,1,1,1), 
-                            ttl: 60 
-                        };
-                        response.answers.push(ans);
-                    }                 
-                }              
-
-                let mut pak = PacketBuffer::new();
-
-                response.write(&mut pak).unwrap();
-
-                println!("RESP!!!!!!!"); 
-                println!("{:#?}", response.header.opcode); 
-                //println!("{:#?}", response.questions);   
-
-                udp_socket
-                    .send_to(&pak.buf, source)
-                    .expect("Failed to send response");
-
-
-            }
-            Err(e) => {
-                eprintln!("Error receiving data: {}", e);
-                break;
-            }
-        }
+        data_stream::handle_query(&udp_socket, &resolver).expect("Failed to process query");
     }
 }

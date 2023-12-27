@@ -1,4 +1,4 @@
-use std::net::{ Ipv4Addr, Ipv6Addr };
+use std::net::{ Ipv4Addr, Ipv6Addr, UdpSocket, SocketAddrV4 };
 
 type Error = Box<dyn std::error::Error>;
 type Result<T> = std::result::Result<T, Error>;
@@ -767,25 +767,84 @@ impl DnsPacket {
     }
 }
 
-// Handle an incoming packet
-// pub fn handle_query(socket: &UdpSocket) -> Result<()> {
-//     let mut req_buf = PacketBuffer::new();
+/// Perform a lookup of a DnsQuestion from a remote nameserver
+/// Uses a given resolver (ip and port)
+pub fn lookup(id: u16, ques: &DnsQuestion, resolver: &SocketAddrV4) -> Result<DnsPacket> {
+    let udp_socket = UdpSocket::bind(("127.0.0.1", 43210)).expect("Failed to bind to lookup address");
 
-//     let (_, src) = socket.recv_from(&mut req_buf.buf)?;
+    let mut pak = DnsPacket::new();
 
-//     let mut req = DnsPacket::from_buf(&mut req_buf)?;
+    pak.header.id = id;
+    pak.header.query_res = false;
+    pak.header.rec_des = true;
+    pak.questions.push(ques.clone());
+    let mut req_buf = PacketBuffer::new();
+    pak.write(&mut req_buf)?;
+    println!("QUERY");
+    println!("{:#?}", pak);
+    udp_socket.send_to(&req_buf.buf[0..req_buf.pos], resolver)?;
+    let mut res_buf = PacketBuffer::new();
+    udp_socket.recv_from(&mut res_buf.buf)?;
+    
+    let val = DnsPacket::from_buf(&mut res_buf)?;
+    
+    println!("RECEIVED \n{:#?}", val);
 
-//     let mut pak = DnsPacket::new();
-//     pak.header.id = req.header.id;
-//     pak.header.rec_des = req.header.rec_des;
-//     pak.header.rec_av = req.header.rec_av;
-//     pak.header.query_res = true;
+    Ok(val)
+}
 
-//     if let Some(question) = req.questions.pop() {
-//         println!("Received query: {:?}", question);
+/// Handle an incoming packet
+/// Uses a given resolver (ip and port)
+pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<()> {
+    let mut req_buf = PacketBuffer::new();
 
-//         //if let Ok(result) = look
-//     }
+    let (size, source) = udp_socket.recv_from(&mut req_buf.buf)?;
 
-//    Ok(())
-// }
+    println!("Received {} bytes from {}", size, source);
+
+    let req = DnsPacket::from_buf(&mut req_buf)?;
+
+    // println!("REQ!!!!!!!"); 
+    // println!("{:#?}", req.header.id); 
+    // println!("{:#?}", req.questions); 
+
+    let mut response = DnsPacket::new();
+    response.header.id = req.header.id;
+    response.header.query_res = true;
+    response.header.opcode = req.header.opcode;
+    response.header.rec_av = false;
+    response.header.rec_des = req.header.rec_des; 
+    response.header.res_code = 
+    if req.header.opcode == 0 { 
+        ResCode::NO_ERR 
+    } 
+    else { 
+        ResCode::NOT_IMP 
+    };
+
+    if response.header.res_code == ResCode::NO_ERR {
+        for i in 0..req.header.ques_count as usize {         
+            // println!("Received query: {:?}", req.questions[i]);
+            response.questions.push(req.questions[i].clone());
+
+            if let Ok(result) = lookup(req.header.id, &req.questions[i], resolver) {
+                for i in 0..result.answers.len() {                   
+                    response.answers.push(result.answers[i].clone());
+                }
+            }                      
+        }
+    }
+
+    // println!("RESP!!!!!!!"); 
+    // println!("{:#?}", response.header);
+
+    let mut res_buf = PacketBuffer::new();
+    response.write(&mut res_buf)?;
+
+    let len = res_buf.pos();
+    let data = res_buf.get_range(0, len)?;
+
+    udp_socket.send_to(data, source)?;
+
+    Ok(())
+}
