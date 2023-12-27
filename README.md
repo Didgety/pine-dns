@@ -12,6 +12,11 @@ Based on a CodeCrafters project
 ## Planned Features
 
 - Handling more record and query types
+- Concurrency
+- TCP support
+- Host your own zones
+- Authoritative nameserver functionality
+- DNSSEC support to protect against DNS poisoning attacks
 
 ## Running the program
 
