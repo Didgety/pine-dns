@@ -797,7 +797,7 @@ pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<(
 
     println!("Received {} bytes from {}", size, source);
 
-    let req = DnsPacket::from_buf(&mut req_buf)?;
+    let mut req = DnsPacket::from_buf(&mut req_buf)?;
 
     // println!("REQ!!!!!!!"); 
     // println!("{:#?}", req.header.id); 
@@ -818,15 +818,20 @@ pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<(
     };
 
     if response.header.res_code == ResCode::NO_ERR {
-        for i in 0..req.header.ques_count as usize {         
+        
+        for _ in 0..req.header.ques_count as usize {         
             // println!("Received query: {:?}", req.questions[i]);
-            response.questions.push(req.questions[i].clone());
-
-            if let Ok(result) = lookup(req.header.id, &req.questions[i], resolver) {
-                for i in 0..result.answers.len() {                   
-                    response.answers.push(result.answers[i].clone());
-                }
-            }                      
+            if let Some(ques) = req.questions.pop() {
+                // println!("Received query: {:?}", ques);
+                response.questions.push(ques);
+                if let Ok(result) = lookup(req.header.id, &response.questions.last().unwrap(), resolver) {
+                    for i in 0..result.answers.len() {                   
+                        response.answers.push(result.answers[i].clone());
+                    }
+                } else {
+                    response.header.res_code = ResCode::SERV_FAIL;
+                }  
+            }                                        
         }
     }
 

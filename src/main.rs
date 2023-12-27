@@ -19,6 +19,9 @@ fn main() {
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
     
     loop {
-        data_stream::handle_query(&udp_socket, &resolver).expect("Failed to process query");
+        match data_stream::handle_query(&udp_socket, &resolver) {
+            Ok(_) => {},
+            Err(e) => eprintln!("An error occurred: {}", e),
+        }       
     }
 }
