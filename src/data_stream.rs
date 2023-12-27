@@ -831,6 +831,8 @@ pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<(
                 } else {
                     response.header.res_code = ResCode::SERV_FAIL;
                 }  
+            } else {
+                response.header.res_code = ResCode::FORM_ERR;
             }                                        
         }
     }
