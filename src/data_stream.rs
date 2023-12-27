@@ -780,17 +780,12 @@ pub fn lookup(id: u16, ques: &DnsQuestion, resolver: &SocketAddrV4) -> Result<Dn
     pak.questions.push(ques.clone());
     let mut req_buf = PacketBuffer::new();
     pak.write(&mut req_buf)?;
-    println!("QUERY");
-    println!("{:#?}", pak);
+
     udp_socket.send_to(&req_buf.buf[0..req_buf.pos], resolver)?;
     let mut res_buf = PacketBuffer::new();
     udp_socket.recv_from(&mut res_buf.buf)?;
     
-    let val = DnsPacket::from_buf(&mut res_buf)?;
-    
-    println!("RECEIVED \n{:#?}", val);
-
-    Ok(val)
+    DnsPacket::from_buf(&mut res_buf)
 }
 
 /// Handle an incoming packet
