@@ -765,39 +765,146 @@ impl DnsPacket {
 
         Ok(())
     }
+
+    /// Pick a random A record from a packet
+    /// Useful when many are returned as the choice is arbitrary
+    pub fn get_random_a_record(&self) -> Option<Ipv4Addr> {
+        self.answers.iter()
+                    .filter_map(|record| match record {
+                        DnsRecord::A { addr_v4, .. } => Some(*addr_v4),
+                        _ => None,
+                    })
+                    .next()
+    }
+
+    /// Returns an iterator of all nameservers in the authorities section
+    fn get_ns<'a>(&'a self, qname: &'a str) -> impl Iterator<Item = (&'a str, &'a str)> {
+        self.authorities.iter()
+                        // Expects NS records to be well formed
+                        // Converts to a tuple (domain: str, host: str)
+                        // TODO add package verification
+                        .filter_map(|record| match record {
+                            DnsRecord::NS { domain, host, .. } => Some((domain.as_str(), host.as_str())),
+                            _ => None,
+                        })
+                        // Keep only authoritative entries
+                        .filter(move |(domain, _)| qname.ends_with(*domain))
+    }
+
+    /// Attempts to return the IP of a nameserver record given the qualified name
+    pub fn get_resolved_ns(&self, qname: &str) -> Option<Ipv4Addr> {
+        self.get_ns(qname)
+            // Look for matching A record in additional section
+            // flat_map returns an iterator for each matching element
+            .flat_map(|(_, host)| {
+                self.resources
+                    .iter()
+                    // Filter for A records where the domain match the host of the nameserver record
+                    .filter_map(move |record| match record {
+                        DnsRecord::A { domain, addr_v4, .. } if domain == host => Some(addr_v4),
+                        _ => None,
+                    })
+            })
+            // keep the IP address's
+            .map(|addr_v4| *addr_v4)
+            // keep the first (valid) entry
+            .next()
+    }
+
+    /// Returns the hostname of a nameserver
+    pub fn get_unresolved_ns<'a>(&'a self, qname: &'a str) -> Option<&'a str> {
+        self.get_ns(qname)
+            // keeps the hostnames of the entries in the authorities section
+            .map(|(_, host)| host)
+            // keep the first valid entry
+            .next()
+    }
 }
 
 /// Perform a lookup of a DnsQuestion from a remote nameserver
 /// Uses a given resolver (ip and port)
-pub fn lookup(id: u16, ques: &DnsQuestion, resolver: &SocketAddrV4) -> Result<DnsPacket> {
-    let udp_socket = UdpSocket::bind(("127.0.0.1", 43210)).expect("Failed to bind to lookup address");
+fn lookup(id: u16, qname: &str, q_type: QueryType, resolver: &SocketAddrV4) -> Result<DnsPacket> {
+    // DO NOT USE 127.0.0.1 - 
+    let udp_socket = UdpSocket::bind(("0.0.0.0", 43210))?;
 
     let mut pak = DnsPacket::new();
 
     pak.header.id = id;
     pak.header.query_res = false;
     pak.header.rec_des = true;
-    pak.questions.push(ques.clone());
+    pak.questions.push(
+        DnsQuestion::new(qname.to_string(), q_type)
+        );
+    
     let mut req_buf = PacketBuffer::new();
     pak.write(&mut req_buf)?;
-
     udp_socket.send_to(&req_buf.buf[0..req_buf.pos], resolver)?;
+
     let mut res_buf = PacketBuffer::new();
     udp_socket.recv_from(&mut res_buf.buf)?;
     
     DnsPacket::from_buf(&mut res_buf)
 }
 
+fn recursive_lookup(id: u16, qname: &str, q_type: QueryType) -> Result<DnsPacket> {
+    // Root nameservers: https://www.internic.net/domain/named.root
+    // Using A for now
+    let mut ns = "198.41.0.4".parse::<Ipv4Addr>().unwrap();
+
+    loop {
+        println!("Attemping recursive lookup of {:?}, ID: {:?}, NS: {:?}", qname, id, ns);
+
+        let ns_copy = ns;
+
+        let serv = SocketAddrV4::new(ns_copy, 53);
+        let resp = lookup(id, qname, q_type, &serv)?;
+
+        // If there are entries in answers and no errors, return the response
+        if !resp.answers.is_empty() && resp.header.res_code == ResCode::NO_ERR {
+            return Ok(resp)
+        }
+
+        // If the domain doesn't exist, return
+        if resp.header.res_code == ResCode::NX_DOMAIN {
+            return Ok(resp)
+        }
+
+        // Try to find a nameserver based based on the A record in the additional section
+        // Switch nameservers if this succeeds
+        if let Some(new_ns) = resp.get_resolved_ns(qname) {
+            ns = new_ns;
+
+            continue;
+        }
+
+        // Try to resolve the ip of a nameserver record
+        // If no record exists use the value from the last server
+        let new_ns_name = match resp.get_unresolved_ns(qname) {
+            Some(x) => x,
+            None => return Ok(resp),
+        };
+
+        // Go "down a level" and query the next nameserver down the chain
+        let rec_resp = recursive_lookup(id, &new_ns_name, QueryType::A)?;
+
+        if let Some(new_ns) = rec_resp.get_random_a_record() {
+            ns = new_ns;
+        } else {
+            return Ok(resp);
+        }
+    }
+}
+
 /// Handle an incoming packet
 /// Uses a given resolver (ip and port)
-pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<()> {
+pub fn handle_query_with_resolver(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<()> {
     let mut req_buf = PacketBuffer::new();
 
     let (size, source) = udp_socket.recv_from(&mut req_buf.buf)?;
 
     println!("Received {} bytes from {}", size, source);
 
-    let req = DnsPacket::from_buf(&mut req_buf)?;
+    let mut req = DnsPacket::from_buf(&mut req_buf)?;
 
     // println!("REQ!!!!!!!"); 
     // println!("{:#?}", req.header.id); 
@@ -818,15 +925,85 @@ pub fn handle_query(udp_socket: &UdpSocket, resolver: &SocketAddrV4) -> Result<(
     };
 
     if response.header.res_code == ResCode::NO_ERR {
-        for i in 0..req.header.ques_count as usize {         
+        
+        for _ in 0..req.header.ques_count as usize {         
             // println!("Received query: {:?}", req.questions[i]);
-            response.questions.push(req.questions[i].clone());
+            if let Some(ques) = req.questions.pop() {
+                // println!("Received query: {:?}", ques);
+                response.questions.push(ques.clone());
+                if let Ok(result) = lookup(req.header.id, &ques.name, ques.q_type, resolver) {
+                    for i in 0..result.answers.len() {                   
+                        response.answers.push(result.answers[i].clone());
+                    }
+                } else {
+                    response.header.res_code = ResCode::SERV_FAIL;
+                }  
+            } else {
+                response.header.res_code = ResCode::FORM_ERR;
+            }                                        
+        }
+    }
 
-            if let Ok(result) = lookup(req.header.id, &req.questions[i], resolver) {
-                for i in 0..result.answers.len() {                   
-                    response.answers.push(result.answers[i].clone());
-                }
-            }                      
+    // println!("RESP!!!!!!!"); 
+    // println!("{:#?}", response.header);
+
+    let mut res_buf = PacketBuffer::new();
+    response.write(&mut res_buf)?;
+
+    let len = res_buf.pos();
+    let data = res_buf.get_range(0, len)?;
+
+    udp_socket.send_to(data, source)?;
+
+    Ok(())
+}
+
+/// Handle an incoming packet
+/// Recursively resolves from the root name servers
+pub fn handle_query_recursively(udp_socket: &UdpSocket) -> Result<()> {
+    let mut req_buf = PacketBuffer::new();
+
+    let (size, source) = udp_socket.recv_from(&mut req_buf.buf)?;
+
+    println!("Received {} bytes from {}", size, source);
+
+    let mut req = DnsPacket::from_buf(&mut req_buf)?;
+
+    // println!("REQ!!!!!!!"); 
+    // println!("{:#?}", req.header.id); 
+    // println!("{:#?}", req.questions); 
+
+    let mut response = DnsPacket::new();
+    response.header.id = req.header.id;
+    response.header.query_res = true;
+    response.header.opcode = req.header.opcode;
+    response.header.rec_av = false;
+    response.header.rec_des = req.header.rec_des; 
+    response.header.res_code = 
+    if req.header.opcode == 0 { 
+        ResCode::NO_ERR 
+    } 
+    else { 
+        ResCode::NOT_IMP 
+    };
+
+    if response.header.res_code == ResCode::NO_ERR {
+        
+        for _ in 0..req.header.ques_count as usize {         
+            // println!("Received query: {:?}", req.questions[i]);
+            if let Some(ques) = req.questions.pop() {
+                // println!("Received query: {:?}", ques);
+                response.questions.push(ques.clone());
+                if let Ok(result) = recursive_lookup(req.header.id, &ques.name, ques.q_type) {
+                    for i in 0..result.answers.len() {                   
+                        response.answers.push(result.answers[i].clone());
+                    }
+                } else {
+                    response.header.res_code = ResCode::SERV_FAIL;
+                }  
+            } else {
+                response.header.res_code = ResCode::FORM_ERR;
+            }                                        
         }
     }
 
