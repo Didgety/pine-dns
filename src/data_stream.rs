@@ -905,7 +905,6 @@ pub fn handle_query_with_resolver(udp_socket: &UdpSocket, resolver: &SocketAddrV
     println!("Received {} bytes from {}", size, source);
 
     let mut req = DnsPacket::from_buf(&mut req_buf)?;
-    let mut req = DnsPacket::from_buf(&mut req_buf)?;
 
     // println!("REQ!!!!!!!"); 
     // println!("{:#?}", req.header.id); 
@@ -925,19 +924,28 @@ pub fn handle_query_with_resolver(udp_socket: &UdpSocket, resolver: &SocketAddrV
         ResCode::NOT_IMP 
     };
 
-    if response.header.res_code == ResCode::NO_ERR {
-        
-        for _ in 0..req.header.ques_count as usize {         
-        
+    if response.header.res_code == ResCode::NO_ERR {   
         for _ in 0..req.header.ques_count as usize {         
             // println!("Received query: {:?}", req.questions[i]);
+
             if let Some(ques) = req.questions.pop() {
                 // println!("Received query: {:?}", ques);
-                response.questions.push(ques.clone());
+
                 if let Ok(result) = lookup(req.header.id, &ques.name, ques.q_type, resolver) {
-                    for i in 0..result.answers.len() {                   
-                        response.answers.push(result.answers[i].clone());
+                    response.questions.push(ques.clone());
+
+                    for rec in result.answers {                   
+                        response.answers.push(rec);
                     }
+
+                    for rec in result.authorities {
+                        response.authorities.push(rec);
+                    }
+
+                    for rec in result.resources {
+                        response.resources.push(rec);
+                    }
+
                 } else {
                     response.header.res_code = ResCode::SERV_FAIL;
                 }  
