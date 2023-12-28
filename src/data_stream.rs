@@ -68,6 +68,29 @@ impl PacketBuffer {
     /// Read two bytes and step two forward
     /// See also [`read_u8(&mut self)`]
     fn read_u16(&mut self) -> Result<u16> {
+        // https://stackoverflow.com/a/50244328/22930677
+        //         A0                   B0
+        //         +--------+           +--------+
+        //         |XXXXXXXX|           |YYYYYYYY|
+        //         +-------++           +-------++
+        //                 |                    |
+        //  A1 = A0 as u16 |     B1 = B0 as u16 |
+        // +---------------v+   +---------------v+
+        // |00000000XXXXXXXX|   |00000000YYYYYYYY|
+        // +---------------++   +---------------++
+        //                 |                    |
+        //    A2 = A1 << 8 |                    |
+        // +---------------v+                   |
+        // |XXXXXXXX00000000|                   |
+        // +---------------++                   |
+        //                 |              +--+  |
+        //                 +-------------->OR<--+
+        //                                +-++
+        //                                  |
+        //                      V = A2 | B1 |
+        //                  +----------+----v+
+        //                  |XXXXXXXXYYYYYYYY|
+        //                  +----------------+
         let res = ((self.read_u8()? as u16) << 8) | (self.read_u8()? as u16);
 
         Ok(res)
