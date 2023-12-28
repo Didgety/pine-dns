@@ -23,7 +23,7 @@ Based on a CodeCrafters project
 - Ensure you have `cargo (1.70)` installed locally
 - The server runs on `127.0.0.1:2053`
 - To use an existing resolver:
-    - `./your_server.sh --resolver <ip:port>` where resolver is the ip and port of a functional dns resolver
+    - `./your_server.sh --resolver <ip:port>` where resolver is the ip and port of a functional dns resolver such as Google's `8.8.8.8:53`
 - To recursively resolve:
     - `./your_server.sh`
 - You can now use a tool such as `dig` to create dns queries and see them be resolved
