@@ -26,5 +26,7 @@ Based on a CodeCrafters project
     - `./your_server.sh --resolver <ip:port>` where resolver is the ip and port of a functional dns resolver such as Google's `8.8.8.8:53`
 - To recursively resolve:
     - `./your_server.sh`
+- On windows replace `./your_server.sh` with `cargo run --quiet --release --target-dir=/tmp/pine-dns-target 
+--manifest-path $(dirname $0) Cargo.toml -- "$@"`
 - You can now use a tool such as `dig` to create dns queries and see them be resolved
     - ex `dig @127.0.0.1 -p 2053 www.google.com`
