@@ -1,6 +1,6 @@
 # Pine DNS
 
-This is a simple DNS server capable of handling A records and responding to queries.
+This is a simple DNS server capable of handling A, NS, CNAME, MX, and AAAA records and responding to queries.
 
 Based on a CodeCrafters project
 
